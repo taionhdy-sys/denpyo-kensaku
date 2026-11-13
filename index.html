@@ -217,12 +217,12 @@ body.dragging .dropveil{display:flex}
   <div class="bar-in">
     <div class="top">
       <h1>売上伝票検索<span class="beta">暫定版</span></h1>
-      <span class="dataset" id="dataset">データ未読込</span>
+      <span class="dataset" id="dataset">保存データを確認中…</span>
       <button class="btn" id="btnLoad" type="button">Excelを読み込む</button>
     </div>
     <div class="searchrow">
       <input id="q" type="search" autocomplete="off" aria-label="検索語"
-        placeholder="得意先・商品名・受注番号・見積番号・備考など（スペースで区切ると絞り込み）">
+        placeholder="得意先・商品名・伝票番号・受注番号・見積番号・メモなど（スペースで区切ると絞り込み）">
     </div>
     <div class="filters">
       <div class="seg" role="group" aria-label="表示単位">
@@ -230,16 +230,16 @@ body.dragging .dropveil{display:flex}
         <button type="button" data-view="line" aria-pressed="false">明細ごと</button>
       </div>
       <label>担当 <select id="fTanto"><option value="">すべて</option></select></label>
-      <label>受注日 <input type="date" id="fFrom" aria-label="受注日（開始）"> 〜 <input type="date" id="fTo" aria-label="受注日（終了）"></label>
-      <label>納品 <select id="fNohin">
-        <option value="">すべて</option><option value="minou">未納あり</option><option value="kanou">完納のみ</option>
+      <label>月 <select id="fMonth"><option value="">すべて</option></select></label>
+      <label>売上日 <input type="date" id="fFrom" aria-label="売上日（開始）"> 〜 <input type="date" id="fTo" aria-label="売上日（終了）"></label>
+      <label>出荷 <select id="fShip">
+        <option value="">すべて</option><option value="flag">一部・訂正出荷あり</option><option value="ok">それ以外</option>
       </select></label>
       <label>並び <select id="fSort">
-        <option value="date-desc">受注日の新しい順</option>
-        <option value="date-asc">受注日の古い順</option>
+        <option value="date-desc">売上日の新しい順</option>
+        <option value="date-asc">売上日の古い順</option>
         <option value="amt-desc">金額の大きい順</option>
         <option value="gp-desc">粗利の大きい順</option>
-        <option value="due-asc">納入期日の近い順</option>
       </select></label>
       <button type="button" class="btn quiet" id="btnReset">条件をクリア</button>
     </div>
@@ -247,10 +247,10 @@ body.dragging .dropveil{display:flex}
 </header>
 
 <main>
-  <div id="emptyState" class="empty">
-    <h2>受注明細表のExcelを読み込んでください</h2>
-    <p>販売管理から出力した「担当者別受注明細表」（.xlsx）をこの画面にドロップするか、下のボタンから選びます。</p>
-    <p>複数月のファイルを続けて読み込むと、まとめて検索できます。同じ受注番号は新しく読み込んだ内容で置き換わります。</p>
+  <div id="emptyState" class="empty" hidden>
+    <h2>売上明細表のExcelを読み込んでください</h2>
+    <p>販売管理から出力した「日付別売上明細表」（.xlsx）をこの画面にドロップするか、下のボタンから選びます。シートが複数あっても全部読み込みます。</p>
+    <p>別の期間のファイルを続けて読み込むと、まとめて検索できます。同じ伝票番号は新しく読み込んだ内容で置き換わります。</p>
     <p>iPhone・iPadでは、LINE WORKSなどで受け取ったExcelをいったん「ファイル」アプリに保存してから、下のボタンで選んでください。</p>
     <p>データはこの端末の中だけに保存され、外部には送られません。</p>
     <button class="btn primary" type="button" id="btnLoad2">Excelを選ぶ</button>
@@ -280,18 +280,17 @@ body.dragging .dropveil{display:flex}
 <script>
 (function(){
 "use strict";
-const STORE = "uriage-denpyo-v1";
 const COLS = {
-  tcode:"担当者コード", tname:"担当者名", date:"受注日", no:"受注番号", kubun:"取引区分",
-  ccode:"得意先コード", cname:"得意先名", taxmode:"税転嫁", dcode:"納入先コード", dname:"納入先名",
-  uchi:"内訳", nohin:"納品", pcode:"商品コード", pname:"商品名/摘要", unit:"単位",
-  wname:"倉庫名", zan:"受注残数", qty:"数量", cost:"原単価", price:"単価", gp:"粗利益", amt:"金額",
-  proj:"プロジェクト名", kazei:"課税区分", biko:"備考", mitsu:"見積番号", due:"納入期日"
+  tcode:["担当者コード"], tname:["担当者名"], date:["売上日","受注日"], no:["伝票番号","受注番号"], juchu:["受注番号"],
+  kubun:["取引区分"], ccode:["得意先コード"], cname:["得意先名"], taxmode:["税転嫁"], dcode:["納入先コード"], dname:["納入先名"],
+  uchi:["内訳"], ship:["出荷","納品"], pcode:["商品コード"], pname:["商品名/摘要"], unit:["単位"], wname:["倉庫名"],
+  zan:["受注残数"], qty:["数量"], cost:["原単価"], price:["単価"], gp:["粗利益"], amt:["金額"],
+  proj:["プロジェクト名"], kazei:["課税区分"], biko:["備考"], mitsu:["見積番号"], due:["納入期日"]
 };
+const FLAG = /一部出荷|訂正出荷|未納/;
 
-let slips = [];     // 伝票の配列
-let files = [];     // 読み込んだファイルの記録
-const st = { q:"", view:"slip", tanto:"", from:"", to:"", nohin:"", sort:"date-desc", limit:150 };
+let slips = [], files = [];
+const st = { q:"", view:"slip", tanto:"", from:"", to:"", ship:"", sort:"date-desc", limit:150 };
 let lastTerms = [];
 
 const $ = id => document.getElementById(id);
@@ -300,119 +299,132 @@ const disp = s => (s == null ? "" : String(s).normalize("NFKC").trim());
 function norm(s){
   if (s == null) return "";
   s = String(s).normalize("NFKC").toLowerCase();
-  s = s.replace(/[\u3041-\u3096]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60)); // ひらがな→カタカナ
-  s = s.replace(/[‐‑‒–—―−－ｰ]/g, m => (m === "ｰ" ? "ー" : "-"));
+  s = s.replace(/[\u3041-\u3096]/g, c => String.fromCharCode(c.charCodeAt(0) + 0x60));
+  s = s.replace(/[‐‑‒–—―−－]/g, "-");
   return s.replace(/\s+/g, "");
 }
 const yen = n => (n < 0 ? "−" : "") + Math.abs(Math.round(n)).toLocaleString("ja-JP");
 const p2 = n => String(n).padStart(2, "0");
 const fmtDate = d => d ? d.replace(/-/g, "/") : "";
 const num = v => { if (v === "" || v == null) return 0; const n = Number(String(v).replace(/,/g, "")); return isFinite(n) ? n : 0; };
-
+const code = v => { if (typeof v === "number") return String(v).padStart(8, "0"); return String(v ?? "").trim(); };
 function toDate(v){
   if (v === "" || v == null) return "";
-  if (typeof v === "number"){
-    const d = XLSX.SSF.parse_date_code(v);
-    return d ? `${d.y}-${p2(d.m)}-${p2(d.d)}` : "";
-  }
+  if (typeof v === "number"){ const d = XLSX.SSF.parse_date_code(v); return d ? `${d.y}-${p2(d.m)}-${p2(d.d)}` : ""; }
   if (v instanceof Date) return `${v.getFullYear()}-${p2(v.getMonth()+1)}-${p2(v.getDate())}`;
   const m = String(v).normalize("NFKC").match(/(\d{4})\D(\d{1,2})\D(\d{1,2})/);
   return m ? `${m[1]}-${p2(m[2])}-${p2(m[3])}` : "";
 }
 
+/* ---------- 保存（IndexedDB） ---------- */
+const DBN = "uriage-denpyo", STN = "kv";
+function idb(){
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(DBN, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore(STN);
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function dbDo(mode, fn){
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction(STN, mode); const req = fn(tx.objectStore(STN));
+    tx.oncomplete = () => { res(req && req.result); db.close(); };
+    tx.onerror = tx.onabort = () => { rej(tx.error); db.close(); };
+  });
+}
+async function save(){
+  try{
+    const plain = slips.map(({key, hkey, body, tax, gp, n, flag, total, lines, ...h}) =>
+      ({ ...h, lines: lines.map(({key, ...l}) => l) }));
+    await dbDo("readwrite", s => s.put({ v:2, files, slips: plain }, "data"));
+  }catch(e){ toast("この端末への保存ができませんでした。画面を閉じると読み込み直しが必要です。"); }
+}
+async function load(){
+  try{
+    const d = await dbDo("readonly", s => s.get("data"));
+    if (d && Array.isArray(d.slips)){ slips = d.slips; files = d.files || []; slips.forEach(prepare); }
+  }catch(e){ slips = []; files = []; }
+}
+
 /* ---------- Excelの解析 ---------- */
-function parseWorkbook(wb){
+function parseWorkbook(wb, map){
+  let found = 0;
   for (const sn of wb.SheetNames){
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header:1, raw:true, defval:"" });
     let h = -1;
     for (let i = 0; i < Math.min(rows.length, 40); i++){
       const r = rows[i].map(v => String(v).trim());
-      if (r.includes("受注番号") && r.includes("得意先名")){ h = i; break; }
+      if (r.includes("得意先名") && (r.includes("伝票番号") || r.includes("受注番号"))){ h = i; break; }
     }
     if (h < 0) continue;
     const head = rows[h].map(v => String(v).trim());
     const ix = {};
-    for (const [k, label] of Object.entries(COLS)) ix[k] = head.indexOf(label);
+    for (const [k, labels] of Object.entries(COLS)){
+      ix[k] = -1;
+      for (const lb of labels){ const i = head.indexOf(lb); if (i >= 0){ ix[k] = i; break; } }
+    }
+    if (ix.juchu === ix.no) ix.juchu = -1;
     const g = (r, k) => (ix[k] >= 0 ? r[ix[k]] : "");
-    const map = new Map();
     for (let i = h + 1; i < rows.length; i++){
       const r = rows[i];
-      let no = g(r, "no");
-      if (typeof no === "number") no = String(no).padStart(8, "0");
-      no = String(no).trim();
+      const no = code(g(r, "no"));
       if (!no || !/\d/.test(no)) continue;
       let s = map.get(no);
       if (!s){
         s = {
           no, date: toDate(g(r,"date")), tcode: disp(g(r,"tcode")), tname: disp(g(r,"tname")),
           ccode: disp(g(r,"ccode")), cname: disp(g(r,"cname")), dcode: disp(g(r,"dcode")), dname: disp(g(r,"dname")),
-          taxmode: disp(g(r,"taxmode")), kubun: disp(g(r,"kubun")), mitsu: disp(g(r,"mitsu")), due: toDate(g(r,"due")),
-          lines: []
+          taxmode: disp(g(r,"taxmode")), kubun: disp(g(r,"kubun")), mitsu: code(g(r,"mitsu")), juchu: code(g(r,"juchu")),
+          due: toDate(g(r,"due")), lines: []
         };
         map.set(no, s);
       }
+      if (!s.juchu){ const j = code(g(r,"juchu")); if (j) s.juchu = j; }
+      if (!s.mitsu){ const m = code(g(r,"mitsu")); if (m) s.mitsu = m; }
       const uchi = disp(g(r,"uchi")), pname = disp(g(r,"pname"));
-      const type = /消費税/.test(pname) && !uchi ? "tax" : (uchi === "メモ" ? "memo" : "item");
+      const type = /消費税/.test(pname) && !uchi ? "tax" : (uchi === "メモ" || uchi === "摘要" ? "memo" : "item");
       s.lines.push({
         t: type, pc: disp(g(r,"pcode")), pn: pname, u: disp(g(r,"unit")),
         q: num(g(r,"qty")), pr: num(g(r,"price")), co: num(g(r,"cost")), gp: num(g(r,"gp")), a: num(g(r,"amt")),
-        nh: disp(g(r,"nohin")), zn: num(g(r,"zan")), kz: disp(g(r,"kazei")), bk: disp(g(r,"biko")),
+        nh: disp(g(r,"ship")), zn: num(g(r,"zan")), kz: disp(g(r,"kazei")), bk: disp(g(r,"biko")),
         wh: disp(g(r,"wname")), pj: disp(g(r,"proj"))
       });
+      found++;
     }
-    if (map.size) return [...map.values()];
   }
-  throw new Error("受注明細表の見出し行（受注番号・得意先名など）が見つかりませんでした。販売管理から出力したままのファイルか確認してください。");
+  if (!found) throw new Error("売上明細表の見出し行（伝票番号・得意先名など）が見つかりませんでした。販売管理から出力したままのファイルか確認してください。");
 }
 
 /* ---------- 集計・索引 ---------- */
 function prepare(s){
-  let body = 0, tax = 0, gp = 0, n = 0, minou = false;
+  let body = 0, tax = 0, gp = 0, n = 0, flag = false;
   for (const l of s.lines){
     if (l.t === "tax"){ tax += l.a; continue; }
     if (l.t === "item"){ body += l.a; gp += l.gp; n++; }
-    if (l.nh === "未納") minou = true;
+    if (FLAG.test(l.nh)) flag = true;
     l.key = norm([l.pc, l.pn, l.bk, l.u, l.kz, l.pj, l.wh].join(" "));
   }
-  s.body = body; s.tax = tax; s.gp = gp; s.n = n; s.minou = minou;
+  s.body = body; s.tax = tax; s.gp = gp; s.n = n; s.flag = flag;
   s.total = /外税/.test(s.taxmode) ? body + tax : body;
-  s.hkey = norm([s.no, s.mitsu, s.ccode, s.cname, s.dcode, s.dname, s.tname, s.tcode, fmtDate(s.date), s.date].join(" "));
+  s.hkey = norm([s.no, s.juchu, s.mitsu, s.ccode, s.cname, s.dcode, s.dname, s.tname, s.tcode, fmtDate(s.date)].join(" "));
   s.key = s.hkey + "|" + s.lines.map(l => l.key || "").join("|");
 }
 
-function save(){
-  try{
-    const plain = slips.map(s => ({
-      no:s.no,date:s.date,tcode:s.tcode,tname:s.tname,ccode:s.ccode,cname:s.cname,dcode:s.dcode,dname:s.dname,
-      taxmode:s.taxmode,kubun:s.kubun,mitsu:s.mitsu,due:s.due,
-      lines:s.lines.map(({key, ...rest}) => rest)
-    }));
-    localStorage.setItem(STORE, JSON.stringify({ v:1, files, slips: plain }));
-    return true;
-  }catch(e){
-    toast("ブラウザへの保存ができませんでした。画面を閉じると読み込み直しが必要です。");
-    return false;
-  }
-}
-function load(){
-  try{
-    const raw = localStorage.getItem(STORE);
-    if (!raw) return;
-    const d = JSON.parse(raw);
-    if (!d || !Array.isArray(d.slips)) return;
-    slips = d.slips; files = d.files || [];
-    slips.forEach(prepare);
-  }catch(e){ slips = []; files = []; }
-}
-
 /* ---------- 読み込み ---------- */
+let busy = false;
 async function readFiles(list){
+  if (busy) return; busy = true;
   const msgs = [];
   for (const f of list){
+    toast(`${f.name} を読み込み中…（大きいファイルは数十秒かかります）`, 0);
+    await new Promise(r => setTimeout(r, 60));
     try{
       const buf = await f.arrayBuffer();
-      const wb = XLSX.read(buf, { type:"array" });
-      const got = parseWorkbook(wb);
+      const wb = XLSX.read(buf, { type:"array", dense:true });
+      const map = new Map();
+      parseWorkbook(wb, map);
+      const got = [...map.values()];
       const index = new Map(slips.map((s, i) => [s.no, i]));
       let added = 0, replaced = 0;
       for (const s of got){
@@ -422,37 +434,38 @@ async function readFiles(list){
       }
       const dates = got.map(s => s.date).filter(Boolean).sort();
       files = files.filter(x => x.name !== f.name);
-      files.push({ name:f.name, at:new Date().toISOString(), count:got.length, from:dates[0]||"", to:dates[dates.length-1]||"" });
-      msgs.push(`${f.name}：${got.length}伝票（追加${added}・更新${replaced}）`);
+      files.push({ name:f.name, count:got.length, from:dates[0]||"", to:dates[dates.length-1]||"" });
+      msgs.push(`${f.name}：${got.length.toLocaleString()}伝票（追加${added.toLocaleString()}・更新${replaced.toLocaleString()}）`);
     }catch(e){
       msgs.push(`${f.name}：${e.message || "読み込めませんでした"}`);
     }
   }
-  save();
-  buildTantoOptions();
+  await save();
+  buildOptions();
   render();
+  busy = false;
   toast(msgs.join(" ／ "));
 }
 
 /* ---------- 検索 ---------- */
-function terms(){
-  return st.q.normalize("NFKC").split(/\s+/).map(norm).filter(Boolean);
-}
+const terms = () => st.q.normalize("NFKC").split(/\s+/).map(norm).filter(Boolean);
 function baseOK(s){
   if (st.tanto && s.tname !== st.tanto) return false;
   if (st.from && s.date < st.from) return false;
   if (st.to && s.date > st.to) return false;
   return true;
 }
-function sortFn(getAmt, getGp, getDate, getDue){
+function sortFn(getAmt, getGp, getDate, getNo){
   switch (st.sort){
-    case "date-asc": return (a,b) => getDate(a).localeCompare(getDate(b)) || a.no.localeCompare(b.no);
+    case "date-asc": return (a,b) => getDate(a).localeCompare(getDate(b)) || getNo(a).localeCompare(getNo(b));
     case "amt-desc": return (a,b) => getAmt(b) - getAmt(a);
     case "gp-desc":  return (a,b) => getGp(b) - getGp(a);
-    case "due-asc":  return (a,b) => (getDue(a)||"9999").localeCompare(getDue(b)||"9999");
-    default:         return (a,b) => getDate(b).localeCompare(getDate(a)) || b.no.localeCompare(a.no);
+    default:         return (a,b) => getDate(b).localeCompare(getDate(a)) || getNo(b).localeCompare(getNo(a));
   }
 }
+const shipPill = (nh, zn) => FLAG.test(nh)
+  ? `<span class="pill minou">${esc(nh)}${zn ? " 残" + zn : ""}</span>`
+  : (nh ? `<span class="pill kanou">${esc(nh)}</span>` : "");
 
 function render(){
   const has = slips.length > 0;
@@ -463,45 +476,42 @@ function render(){
   const T = lastTerms = terms();
   st.view === "slip" ? renderSlips(T) : renderLines(T);
 }
-
 function renderDataset(){
   if (!slips.length){ $("dataset").textContent = "データ未読込"; return; }
   const ds = slips.map(s => s.date).filter(Boolean).sort();
-  $("dataset").textContent = `受注日 ${fmtDate(ds[0])}〜${fmtDate(ds[ds.length-1])}　${slips.length.toLocaleString()}伝票`;
+  $("dataset").textContent = `売上日 ${fmtDate(ds[0])}〜${fmtDate(ds[ds.length-1])}　${slips.length.toLocaleString()}伝票`;
   $("fileList").innerHTML = files.map(f =>
-    `<li>${esc(f.name)}（${f.count}伝票${f.from ? `、${fmtDate(f.from)}〜${fmtDate(f.to)}` : ""}）</li>`).join("");
+    `<li>${esc(f.name)}（${f.count.toLocaleString()}伝票${f.from ? `、${fmtDate(f.from)}〜${fmtDate(f.to)}` : ""}）</li>`).join("");
 }
-
 function renderSlips(T){
-  let list = slips.filter(s => baseOK(s)
-    && (!st.nohin || (st.nohin === "minou" ? s.minou : !s.minou))
+  const list = slips.filter(s => baseOK(s)
+    && (!st.ship || (st.ship === "flag" ? s.flag : !s.flag))
     && T.every(t => s.key.includes(t)));
-  list.sort(sortFn(s => s.total, s => s.gp, s => s.date || "", s => s.due));
+  list.sort(sortFn(s => s.total, s => s.gp, s => s.date || "", s => s.no));
   const body = list.reduce((a,s) => a + s.body, 0), gp = list.reduce((a,s) => a + s.gp, 0);
-  const minouN = list.filter(s => s.minou).length;
+  const flagN = list.filter(s => s.flag).length;
   $("summary").innerHTML =
     sum("該当", `${list.length.toLocaleString()}<small>伝票</small>`) +
     sum("金額（本体）", `${yen(body)}<small>円</small>`) +
     sum("粗利", `${yen(gp)}<small>円</small>`) +
     sum("粗利率", body ? `${(gp/body*100).toFixed(1)}<small>%</small>` : "—") +
-    (minouN ? sum("未納あり", `<span class="neg">${minouN}</span><small>伝票</small>`) : "");
+    (flagN ? sum("一部・訂正出荷", `<span class="neg">${flagN}</span><small>伝票</small>`) : "");
   const shown = list.slice(0, st.limit);
   $("res").innerHTML = `<thead><tr>
-      <th>受注日</th><th>受注番号</th><th>得意先 ／ 納入先</th><th>担当</th>
-      <th class="num">明細</th><th class="num">合計</th><th class="num">粗利</th><th>納品</th></tr></thead>
+      <th>売上日</th><th>伝票番号</th><th>得意先 ／ 納入先</th><th>担当</th>
+      <th class="num">明細</th><th class="num">合計</th><th class="num">粗利</th><th>出荷</th></tr></thead>
     <tbody>${shown.map(s => `<tr data-no="${esc(s.no)}" tabindex="0">
-      <td data-l="受注日">${fmtDate(s.date)}${s.due ? `<span class="sub">期日 ${fmtDate(s.due)}</span>` : ""}</td>
-      <td data-l="受注番号">${esc(s.no)}${s.mitsu ? `<span class="sub">見積 ${esc(s.mitsu)}</span>` : ""}</td>
+      <td data-l="売上日">${fmtDate(s.date)}</td>
+      <td data-l="伝票番号">${esc(s.no)}${s.juchu ? `<span class="sub">受注 ${esc(s.juchu)}</span>` : ""}</td>
       <td>${esc(s.cname)} <span class="code">${esc(s.ccode)}</span>${s.dname ? `<span class="sub">納入先 ${esc(s.dname)}</span>` : ""}</td>
       <td data-l="担当">${esc(s.tname)}</td>
       <td class="num" data-l="明細">${s.n}行</td>
       <td class="num" data-l="合計">${yen(s.total)}<span class="sub">${esc(s.taxmode)}</span></td>
       <td class="num ${s.gp < 0 ? "neg" : ""}" data-l="粗利">${yen(s.gp)}</td>
-      <td>${s.minou ? `<span class="pill minou">未納あり</span>` : `<span class="pill kanou">完納</span>`}</td>
+      <td>${s.flag ? `<span class="pill minou">一部・訂正</span>` : ""}</td>
     </tr>`).join("")}</tbody>`;
   finishList(list.length, shown.length);
 }
-
 function renderLines(T){
   const out = [];
   for (const s of slips){
@@ -509,12 +519,12 @@ function renderLines(T){
     const headHit = T.filter(t => s.hkey.includes(t));
     for (const l of s.lines){
       if (l.t === "tax") continue;
-      if (st.nohin === "minou" && l.nh !== "未納") continue;
-      if (st.nohin === "kanou" && l.nh !== "完納") continue;
+      if (st.ship === "flag" && !FLAG.test(l.nh)) continue;
+      if (st.ship === "ok" && FLAG.test(l.nh)) continue;
       if (T.every(t => headHit.includes(t) || l.key.includes(t))) out.push({ s, l });
     }
   }
-  out.sort(sortFn(x => x.l.a, x => x.l.gp, x => x.s.date || "", x => x.s.due));
+  out.sort(sortFn(x => x.l.a, x => x.l.gp, x => x.s.date || "", x => x.s.no));
   const items = out.filter(x => x.l.t === "item");
   const amt = items.reduce((a,x) => a + x.l.a, 0), gp = items.reduce((a,x) => a + x.l.gp, 0);
   const qty = items.reduce((a,x) => a + x.l.q, 0);
@@ -527,24 +537,23 @@ function renderLines(T){
     sum("粗利率", amt ? `${(gp/amt*100).toFixed(1)}<small>%</small>` : "—");
   const shown = out.slice(0, st.limit);
   $("res").innerHTML = `<thead><tr>
-      <th>受注日</th><th>受注番号</th><th>得意先</th><th>商品</th>
-      <th class="num">数量</th><th class="num">単価</th><th class="num">金額</th><th class="num">粗利</th><th>納品</th></tr></thead>
+      <th>売上日</th><th>伝票番号</th><th>得意先</th><th>商品</th>
+      <th class="num">数量</th><th class="num">単価</th><th class="num">金額</th><th class="num">粗利</th><th>出荷</th></tr></thead>
     <tbody>${shown.map(({s,l}) => l.t === "memo" ? `<tr data-no="${esc(s.no)}" tabindex="0">
-      <td data-l="受注日">${fmtDate(s.date)}</td><td data-l="受注番号">${esc(s.no)}</td><td>${esc(s.cname)}</td>
+      <td data-l="売上日">${fmtDate(s.date)}</td><td data-l="伝票番号">${esc(s.no)}</td><td>${esc(s.cname)}</td>
       <td colspan="6" style="color:var(--memo)">メモ：${esc(l.pn)}</td></tr>` : `<tr data-no="${esc(s.no)}" tabindex="0">
-      <td data-l="受注日">${fmtDate(s.date)}</td>
-      <td data-l="受注番号">${esc(s.no)}</td>
+      <td data-l="売上日">${fmtDate(s.date)}</td>
+      <td data-l="伝票番号">${esc(s.no)}</td>
       <td>${esc(s.cname)}<span class="sub">${esc(s.tname)}</span></td>
       <td>${esc(l.pn)}<span class="sub">${esc(l.pc)}${l.bk ? `　備考 ${esc(l.bk)}` : ""}</span></td>
       <td class="num" data-l="数量">${l.q.toLocaleString()}${esc(l.u)}</td>
       <td class="num" data-l="単価">${yen(l.pr)}</td>
       <td class="num" data-l="金額">${yen(l.a)}</td>
       <td class="num ${l.gp < 0 ? "neg" : ""}" data-l="粗利">${yen(l.gp)}</td>
-      <td>${l.nh === "未納" ? `<span class="pill minou">未納${l.zn ? " 残" + l.zn : ""}</span>` : (l.nh ? `<span class="pill kanou">${esc(l.nh)}</span>` : "")}</td>
+      <td>${shipPill(l.nh, l.zn)}</td>
     </tr>`).join("")}</tbody>`;
   finishList(out.length, shown.length);
 }
-
 function sum(k, v){ return `<span><span class="k">${k}</span><span class="v">${v}</span></span>`; }
 function finishList(total, shown){
   $("res").hidden = total === 0;
@@ -569,30 +578,31 @@ function openSlip(no){
         <td class="num hide-sm">${yen(l.co)}</td>
         <td class="num">${yen(l.a)}</td>
         <td class="num ${l.gp < 0 ? "neg" : ""}">${yen(l.gp)}</td>
-        <td>${l.nh === "未納" ? `<span class="pill minou">未納${l.zn ? " 残" + l.zn : ""}</span>` : esc(l.nh)}</td>
+        <td>${shipPill(l.nh, l.zn)}</td>
       </tr>`).join("");
   const rate = s.body ? (s.gp / s.body * 100).toFixed(1) + "%" : "—";
   $("slip").innerHTML = `
     <div class="slip-head">
       <div>
-        <div class="slip-title">受注伝票</div>
+        <div class="slip-title">売上伝票</div>
         <div class="slip-no">No. ${esc(s.no)}</div>
       </div>
       <div style="display:flex;align-items:flex-start">
-        ${s.minou ? `<div class="stamp minou">未納<small>あり</small></div>` : `<div class="stamp kanou">完納</div>`}
+        ${s.flag ? `<div class="stamp minou">一部<small>訂正出荷</small></div>` : `<div class="stamp kanou">売上</div>`}
         <button class="btn quiet close" type="button" id="btnClose" aria-label="閉じる">×</button>
       </div>
     </div>
     <dl>
-      <dt>受注日</dt><dd>${fmtDate(s.date)}</dd><dt>納入期日</dt><dd>${fmtDate(s.due) || "—"}</dd>
+      <dt>売上日</dt><dd>${fmtDate(s.date)}</dd><dt>担当</dt><dd>${esc(s.tname)}</dd>
       <dt>得意先</dt><dd class="wide">${esc(s.cname)} <span class="code">${esc(s.ccode)}</span></dd>
       ${s.dname ? `<dt>納入先</dt><dd class="wide">${esc(s.dname)} <span class="code">${esc(s.dcode)}</span></dd>` : ""}
-      <dt>担当</dt><dd>${esc(s.tname)}</dd><dt>見積番号</dt><dd>${esc(s.mitsu) || "—"}</dd>
+      <dt>受注番号</dt><dd>${esc(s.juchu) || "—"}</dd><dt>見積番号</dt><dd>${esc(s.mitsu) || "—"}</dd>
       <dt>取引区分</dt><dd>${esc(s.kubun)}</dd><dt>税転嫁</dt><dd>${esc(s.taxmode)}</dd>
+      ${s.due ? `<dt>納入期日</dt><dd class="wide">${fmtDate(s.due)}</dd>` : ""}
     </dl>
     <h3>明細 ${s.n}行</h3>
     <div class="tablewrap"><table class="lines">
-      <thead><tr><th>商品</th><th class="num">数量</th><th class="num">単価</th><th class="num hide-sm">原単価</th><th class="num">金額</th><th class="num">粗利</th><th>納品</th></tr></thead>
+      <thead><tr><th>商品</th><th class="num">数量</th><th class="num">単価</th><th class="num hide-sm">原単価</th><th class="num">金額</th><th class="num">粗利</th><th>出荷</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div>
     <table class="totals" style="margin-top:14px">
@@ -603,7 +613,7 @@ function openSlip(no){
     </table>
     <div class="slip-acts">
       <button class="btn" type="button" data-q="${esc(s.cname)}">この得意先の伝票をすべて見る</button>
-      ${s.mitsu ? `<button class="btn" type="button" data-q="${esc(s.mitsu)}">同じ見積番号の伝票を探す</button>` : ""}
+      ${s.juchu ? `<button class="btn" type="button" data-q="${esc(s.juchu)}">同じ受注番号の伝票を探す</button>` : ""}
     </div>`;
   $("slip").classList.add("open"); $("scrim").classList.add("open");
   $("slip").setAttribute("aria-hidden", "false");
@@ -616,27 +626,35 @@ function closeSlip(){
 }
 
 /* ---------- 画面の配線 ---------- */
-function buildTantoOptions(){
+function buildOptions(){
   const names = [...new Set(slips.map(s => s.tname).filter(Boolean))].sort((a,b) => a.localeCompare(b, "ja"));
   $("fTanto").innerHTML = `<option value="">すべて</option>` + names.map(n => `<option ${n === st.tanto ? "selected" : ""}>${esc(n)}</option>`).join("");
+  const months = [...new Set(slips.map(s => (s.date || "").slice(0, 7)).filter(Boolean))].sort().reverse();
+  $("fMonth").innerHTML = `<option value="">すべて</option>` + months.map(m => `<option value="${m}">${m.replace("-", "年")}月</option>`).join("");
 }
 let tt;
-function toast(msg){
+function toast(msg, ms = 5000){
   const el = $("toast"); el.textContent = msg; el.classList.add("show");
-  clearTimeout(tt); tt = setTimeout(() => el.classList.remove("show"), 4500);
+  clearTimeout(tt); if (ms) tt = setTimeout(() => el.classList.remove("show"), ms);
 }
+function lastDay(ym){ const [y, m] = ym.split("-").map(Number); return `${ym}-${p2(new Date(y, m, 0).getDate())}`; }
 let qt;
-$("q").addEventListener("input", e => { clearTimeout(qt); qt = setTimeout(() => { st.q = e.target.value; st.limit = 150; render(); }, 120); });
+$("q").addEventListener("input", e => { clearTimeout(qt); qt = setTimeout(() => { st.q = e.target.value; st.limit = 150; render(); }, 150); });
 document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
   st.view = b.dataset.view; st.limit = 150;
   document.querySelectorAll(".seg button").forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
   render();
 }));
-[["fTanto","tanto"],["fFrom","from"],["fTo","to"],["fNohin","nohin"],["fSort","sort"]].forEach(([id,k]) =>
-  $(id).addEventListener("change", e => { st[k] = e.target.value; st.limit = 150; render(); }));
+[["fTanto","tanto"],["fFrom","from"],["fTo","to"],["fShip","ship"],["fSort","sort"]].forEach(([id,k]) =>
+  $(id).addEventListener("change", e => { st[k] = e.target.value; if (k === "from" || k === "to") $("fMonth").value = ""; st.limit = 150; render(); }));
+$("fMonth").addEventListener("change", e => {
+  const m = e.target.value;
+  st.from = m ? `${m}-01` : ""; st.to = m ? lastDay(m) : "";
+  $("fFrom").value = st.from; $("fTo").value = st.to; st.limit = 150; render();
+});
 $("btnReset").addEventListener("click", () => {
-  Object.assign(st, { q:"", tanto:"", from:"", to:"", nohin:"", sort:"date-desc", limit:150 });
-  $("q").value = ""; $("fTanto").value = ""; $("fFrom").value = ""; $("fTo").value = ""; $("fNohin").value = ""; $("fSort").value = "date-desc";
+  Object.assign(st, { q:"", tanto:"", from:"", to:"", ship:"", sort:"date-desc", limit:150 });
+  ["q","fTanto","fMonth","fFrom","fTo","fShip"].forEach(id => $(id).value = ""); $("fSort").value = "date-desc";
   render();
 });
 $("btnMore").addEventListener("click", () => { st.limit += 300; render(); });
@@ -657,11 +675,11 @@ document.addEventListener("keydown", e => {
 const pick = () => $("file").click();
 ["btnLoad","btnLoad2","btnAdd"].forEach(id => $(id).addEventListener("click", pick));
 $("file").addEventListener("change", e => { if (e.target.files.length) readFiles([...e.target.files]); e.target.value = ""; });
-$("btnClear").addEventListener("click", () => {
-  if (!confirm("このブラウザに保存した伝票データをすべて消去します。よろしいですか？")) return;
+$("btnClear").addEventListener("click", async () => {
+  if (!confirm("この端末に保存した伝票データをすべて消去します。よろしいですか？")) return;
   slips = []; files = [];
-  try{ localStorage.removeItem(STORE); }catch(e){}
-  buildTantoOptions(); render(); toast("保存データを消去しました");
+  try{ await dbDo("readwrite", s => s.delete("data")); }catch(e){}
+  buildOptions(); render(); toast("保存データを消去しました");
 });
 let dragN = 0;
 window.addEventListener("dragenter", e => { if ([...e.dataTransfer.types].includes("Files")){ dragN++; document.body.classList.add("dragging"); } });
@@ -673,12 +691,11 @@ window.addEventListener("drop", e => {
   if (fs.length) readFiles(fs); else toast("Excelファイル（.xlsx）をドロップしてください");
 });
 
-if (typeof XLSX === "undefined"){
-  document.querySelector("#emptyState p").innerHTML = '<span class="err">Excel読み込み部品を取得できませんでした。通信状況を確認して再読み込みしてください。</span>';
-}
-load();
-buildTantoOptions();
-render();
+(async () => {
+  await load();
+  buildOptions();
+  render();
+})();
 })();
 </script>
 </body>
